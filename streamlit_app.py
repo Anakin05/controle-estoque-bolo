@@ -37,7 +37,14 @@ def mov_df():
 
 
 def contas_df():
-    return pd.DataFrame(contas_ws.get_all_records())
+    df = pd.DataFrame(contas_ws.get_all_records())
+
+    if df.empty:
+        return df
+
+    df.columns = df.columns.str.strip().str.lower()
+
+    return df
 
 
 def novo_id(df):
