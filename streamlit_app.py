@@ -29,18 +29,15 @@ contas_ws = planilha.worksheet("contas_pagar")
 
 
 def produtos_df():
-    dados = produtos_ws.get_all_records()
-    return pd.DataFrame(dados)
+    return pd.DataFrame(produtos_ws.get_all_records())
 
 
 def mov_df():
-    dados = mov_ws.get_all_records()
-    return pd.DataFrame(dados)
+    return pd.DataFrame(mov_ws.get_all_records())
 
 
 def contas_df():
-    dados = contas_ws.get_all_records()
-    return pd.DataFrame(dados)
+    return pd.DataFrame(contas_ws.get_all_records())
 
 
 def novo_id(df):
@@ -77,10 +74,6 @@ menu = st.sidebar.selectbox(
 )
 
 
-# =========================
-# CADASTRO
-# =========================
-
 if menu == "Cadastro":
     st.subheader("Cadastrar sabor")
 
@@ -109,10 +102,6 @@ if menu == "Cadastro":
                 st.success("Produto salvo com sucesso!")
 
 
-# =========================
-# ENTRADA
-# =========================
-
 elif menu == "Entrada":
     st.subheader("Entrada de estoque")
 
@@ -135,23 +124,21 @@ elif menu == "Entrada":
                 datetime.now().strftime("%d/%m/%Y %H:%M")
             ])
 
-            valor_divida = int(qtd) * float(produto["custo"])
             contas = contas_df()
 
             contas_ws.append_row([
                 novo_id(contas),
                 datetime.now().strftime("%d/%m/%Y %H:%M"),
-                f"Compra {int(qtd)}x {nome}",
-                valor_divida,
-                "nao"
+                nome,
+                int(qtd),
+                float(produto["custo"]),
+                0
             ])
 
-            st.success(f"Entrada registrada! Dívida adicionada: R$ {valor_divida:.2f}")
+            valor_total = int(qtd) * float(produto["custo"])
 
+            st.success(f"Entrada registrada! Valor adicionado ao contas a pagar: R$ {valor_total:.2f}")
 
-# =========================
-# VENDA
-# =========================
 
 elif menu == "Venda":
     st.subheader("Registrar venda")
@@ -184,10 +171,6 @@ elif menu == "Venda":
                 st.success("Venda registrada com sucesso!")
 
 
-# =========================
-# ESTOQUE
-# =========================
-
 elif menu == "Estoque":
     st.subheader("Estoque atual")
 
@@ -212,10 +195,6 @@ elif menu == "Estoque":
         st.dataframe(pd.DataFrame(lista), use_container_width=True)
 
 
-# =========================
-# CONTAS A PAGAR
-# =========================
-
 elif menu == "Contas a pagar":
     st.subheader("Contas a pagar - Camila")
 
@@ -224,30 +203,47 @@ elif menu == "Contas a pagar":
     if df.empty:
         st.info("Nenhuma dívida registrada.")
     else:
-        pendentes = df[df["pago"] == "nao"]
+        df["quantidade"] = pd.to_numeric(df["quantidade"])
+        df["valor_unitario"] = pd.to_numeric(df["valor_unitario"])
+        df["qtd_paga"] = pd.to_numeric(df["qtd_paga"])
 
-        total_devendo = pendentes["valor"].sum() if not pendentes.empty else 0
+        df["qtd_pendente"] = df["quantidade"] - df["qtd_paga"]
+        df["valor_pendente"] = df["qtd_pendente"] * df["valor_unitario"]
+
+        total_devendo = df["valor_pendente"].sum()
 
         st.metric("Total devendo", f"R$ {total_devendo:.2f}")
 
         st.markdown("---")
-        st.subheader("Dívidas registradas")
 
         for i, row in df.iterrows():
-            col1, col2, col3 = st.columns([4, 2, 1])
+            if row["qtd_pendente"] > 0:
+                st.write(f"**{row['produto']}**")
+                st.write(
+                    f"Entrada: {int(row['quantidade'])} un | "
+                    f"Pago: {int(row['qtd_paga'])} un | "
+                    f"Pendente: {int(row['qtd_pendente'])} un"
+                )
+                st.write(f"Valor pendente: R$ {row['valor_pendente']:.2f}")
 
-            status = "✅ Pago" if row["pago"] == "sim" else "❌ Pendente"
+                qtd_pagar = st.number_input(
+                    "Quantas unidades pagar?",
+                    min_value=1,
+                    max_value=int(row["qtd_pendente"]),
+                    key=f"qtd_pagar_{row['id']}"
+                )
 
-            col1.write(f"**{row['descricao']}**")
-            col2.write(f"R$ {float(row['valor']):.2f} — {status}")
+                if st.button("Confirmar PIX", key=f"pagar_{row['id']}"):
+                    nova_qtd_paga = int(row["qtd_paga"]) + int(qtd_pagar)
 
-            if row["pago"] == "nao":
-                if col3.button("PIX pago", key=f"pagar_{row['id']}"):
-                    contas_ws.update_cell(i + 2, 5, "sim")
-                    st.success("Pagamento confirmado!")
+                    contas_ws.update_cell(i + 2, 6, nova_qtd_paga)
+
+                    valor_pago = int(qtd_pagar) * float(row["valor_unitario"])
+
+                    st.success(f"PIX confirmado: R$ {valor_pago:.2f}")
                     st.rerun()
 
-        st.markdown("---")
-        st.subheader("Tabela completa")
+                st.markdown("---")
 
+        st.subheader("Tabela completa")
         st.dataframe(df, use_container_width=True)
