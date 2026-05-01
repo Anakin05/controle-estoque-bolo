@@ -26,24 +26,34 @@ planilha = client.open("Estoque Bolos")
 produtos_ws = planilha.worksheet("produtos")
 mov_ws = planilha.worksheet("movimentacoes")
 contas_ws = planilha.worksheet("contas_pagar")
+contas_receber_ws = planilha.worksheet("contas_receber")
 
 
 def produtos_df():
-    return pd.DataFrame(produtos_ws.get_all_records())
+    df = pd.DataFrame(produtos_ws.get_all_records())
+    if not df.empty:
+        df.columns = df.columns.str.strip().str.lower()
+    return df
 
 
 def mov_df():
-    return pd.DataFrame(mov_ws.get_all_records())
+    df = pd.DataFrame(mov_ws.get_all_records())
+    if not df.empty:
+        df.columns = df.columns.str.strip().str.lower()
+    return df
 
 
 def contas_df():
     df = pd.DataFrame(contas_ws.get_all_records())
+    if not df.empty:
+        df.columns = df.columns.str.strip().str.lower()
+    return df
 
-    if df.empty:
-        return df
 
-    df.columns = df.columns.str.strip().str.lower()
-
+def contas_receber_df():
+    df = pd.DataFrame(contas_receber_ws.get_all_records())
+    if not df.empty:
+        df.columns = df.columns.str.strip().str.lower()
     return df
 
 
@@ -76,7 +86,8 @@ menu = st.sidebar.selectbox(
         "Entrada",
         "Venda",
         "Estoque",
-        "Contas a pagar"
+        "Contas a pagar",
+        "Contas a receber"
     ]
 )
 
@@ -163,9 +174,21 @@ elif menu == "Venda":
 
         qtd = st.number_input("Quantidade vendida", min_value=1)
 
+        tipo_pagamento = st.radio(
+            "Status do pagamento",
+            ["Pago", "Fiado"]
+        )
+
+        cliente = ""
+
+        if tipo_pagamento == "Fiado":
+            cliente = st.text_input("Nome do devedor")
+
         if st.button("Registrar venda"):
             if qtd > estoque_atual:
                 st.error("Estoque insuficiente.")
+            elif tipo_pagamento == "Fiado" and cliente.strip() == "":
+                st.error("Digite o nome do devedor.")
             else:
                 mov_ws.append_row([
                     int(produto["id"]),
@@ -175,7 +198,22 @@ elif menu == "Venda":
                     datetime.now().strftime("%d/%m/%Y %H:%M")
                 ])
 
-                st.success("Venda registrada com sucesso!")
+                if tipo_pagamento == "Fiado":
+                    contas_receber = contas_receber_df()
+
+                    contas_receber_ws.append_row([
+                        novo_id(contas_receber),
+                        datetime.now().strftime("%d/%m/%Y %H:%M"),
+                        cliente.strip(),
+                        nome,
+                        int(qtd),
+                        float(produto["preco"]),
+                        "nao"
+                    ])
+
+                    st.warning("Venda registrada como FIADO.")
+                else:
+                    st.success("Venda registrada como PAGA.")
 
 
 elif menu == "Estoque":
@@ -219,7 +257,7 @@ elif menu == "Contas a pagar":
 
         total_devendo = df["valor_pendente"].sum()
 
-        st.metric("Total devendo", f"R$ {total_devendo:.2f}")
+        st.metric("Total devendo para Camila", f"R$ {total_devendo:.2f}")
 
         st.markdown("---")
 
@@ -252,5 +290,46 @@ elif menu == "Contas a pagar":
 
                 st.markdown("---")
 
+        st.subheader("Tabela completa")
+        st.dataframe(df, use_container_width=True)
+
+
+elif menu == "Contas a receber":
+    st.subheader("Contas a receber")
+
+    df = contas_receber_df()
+
+    if df.empty:
+        st.info("Nenhuma venda fiada registrada.")
+    else:
+        df["quantidade"] = pd.to_numeric(df["quantidade"])
+        df["valor_unitario"] = pd.to_numeric(df["valor_unitario"])
+
+        df["total"] = df["quantidade"] * df["valor_unitario"]
+
+        pendentes = df[df["pago"] == "nao"]
+        total_receber = pendentes["total"].sum() if not pendentes.empty else 0
+
+        st.metric("Total a receber", f"R$ {total_receber:.2f}")
+
+        st.markdown("---")
+
+        for i, row in df.iterrows():
+            status = "✅ Pago" if row["pago"] == "sim" else "❌ Pendente"
+
+            col1, col2, col3 = st.columns([4, 2, 1])
+
+            col1.write(f"**{row['cliente']}** - {row['produto']}")
+            col1.write(f"{int(row['quantidade'])} un")
+            col2.write(f"R$ {float(row['total']):.2f}")
+            col2.write(status)
+
+            if row["pago"] == "nao":
+                if col3.button("Receber", key=f"receber_{row['id']}"):
+                    contas_receber_ws.update_cell(i + 2, 7, "sim")
+                    st.success("Pagamento recebido!")
+                    st.rerun()
+
+        st.markdown("---")
         st.subheader("Tabela completa")
         st.dataframe(df, use_container_width=True)
